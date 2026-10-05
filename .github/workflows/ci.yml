@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Lint HTML
+        run: npx --yes htmlhint "public-html/**/*.html"
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t simple-apache-site .
+
+      - name: Start container
+        run: |
+          docker run -d --name web -p 8080:80 simple-apache-site
+          sleep 3
+
+      - name: Check Apache config
+        run: docker exec web httpd -t
+
+      - name: Test pages
+        run: |
+          check() {
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080$1")
+            echo "$1 -> $code (expected $2)"
+            [ "$code" = "$2" ]
+          }
+          check /              200
+          check /about.html    200
+          check /css/style.css 200
+          check /missing-page  404
+          curl -s http://localhost:8080/ | grep -q "It works!"
+          curl -s http://localhost:8080/missing-page | grep -q "404 - Page not found"
+
+      - name: Show container logs
+        if: always()
+        run: docker logs web
